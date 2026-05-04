@@ -1,0 +1,72 @@
+name: Build Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Build platform'
+        required: true
+        type: choice
+        default: 'x64'
+        options:
+          - x64
+          - x86
+          - ARM64
+
+jobs:
+  build:
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Install dependencies
+        run: |
+          dotnet restore src/DeDupe/DeDupe.csproj
+
+      - name: Build Release
+        run: |
+          dotnet build src/DeDupe/DeDupe.csproj -c Release -p:Platform=${{ inputs.platform }} --no-restore
+
+      - name: Prepare artifacts
+        shell: pwsh
+        run: |
+          $buildPath = "src\DeDupe\bin\${{ inputs.platform }}\Release\net10.0-windows10.0.19041.0\win-${{ inputs.platform }}"
+          $artifactPath = "artifacts\${{ inputs.platform }}"
+          
+          if (!(Test-Path $artifactPath)) {
+            New-Item -ItemType Directory -Path $artifactPath -Force | Out-Null
+          }
+          
+          # Copy exe and dependencies
+          Copy-Item "$buildPath\DeDupe.exe" $artifactPath
+          Copy-Item "$buildPath\*.dll" $artifactPath
+          Copy-Item "$buildPath\*.json" $artifactPath
+          Copy-Item "$buildPath\*.pdb" $artifactPath
+          
+          Write-Host "Artifacts prepared in $artifactPath"
+          Get-ChildItem $artifactPath
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: DeDupe-${{ inputs.platform }}-Release
+          path: artifacts/${{ inputs.platform }}/
+          retention-days: 30
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: artifacts/${{ inputs.platform }}/**
+          draft: false
+          prerelease: false
